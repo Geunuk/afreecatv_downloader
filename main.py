@@ -141,7 +141,7 @@ class Video():
                         line = "file \'" + part_file_path + '\'\n'
                         tmp.write(line)
 
-                command = [FFMPEG_BIN,
+                command = [self.ffmpeg_bin,
                             '-f', 'concat',
                             '-safe', '0',
                             '-i', path,
@@ -221,8 +221,9 @@ class VideoPart():
   
     def download(self):
         print("Downloading", self.file_name, "...")
+
         try:
-            command = [FFMPEG_BIN,
+            command = [self.ffmpeg_bin,
                         '-i', self.url,
                         '-c', 'copy',
                         '-bsf:a', 'aac_adtstoasc',
