@@ -330,12 +330,20 @@ def check_os():
 
 def main():
     global video
+    man = """
+[사용 방법]
+    1. 프로그램 실행 python main.py
+    2. 웹브라우저를 통해 동영상이 있는 웹 페이지로 이동한 뒤 새로고침 한다.
+        ex) http://vod.afreecatv.com/PLAYER/STATION/###
+    3. 전체 동영상은 보통 1시간 단위의 파트로 나누어져 있지만
+       그보다 작은 파트도 존재한다.
+       재생 바의 여러 부분을 클릭하여 모든 파트를 찾아야 한다.
+       파트를 찾게 되면 메세지가 표시되며 모든 파트를 발견한 경우 자동으로 다운로드가 시작된다."""
     
     check_os()
     video = Video(FFMPEG_BIN)
-
-    print("[동영상 주소로 가서 새로고침을 눌러주세요]")
-    print("ex:", "http://vod.afreecatv.com/PLAYER/STATION/44124384")
+    
+    print(man)
 
     sniff(prn=collect_playlist, stop_filter=video.is_collecting_done, 
             lfilter=lambda p: 'GET /' in str(p), filter="tcp")
