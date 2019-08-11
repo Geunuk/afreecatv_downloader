@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from urllib.request import urlopen
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qsl
 from datetime import timedelta
 import re
 import sys
@@ -91,7 +91,7 @@ class Video():
         html = urlopen(url).read()
         soup = BeautifulSoup(html, 'html.parser')
 
-        self.title = soup.find("dt", id="title_name").text.strip()
+        self.title = soup.find("h1", id="broadTitle").text.strip()
         
         file_name = str(self.title).strip().replace(' ', '_')
         self.file_name = re.sub(r'(?u)[^-\w.]', '', file_name) + ".mp4"
@@ -106,10 +106,9 @@ class Video():
                 => 15162 sec
         """
 
-        start_idx = path.find("duration=")
-        end_idx = path.find("&quality")
-
-        length_seconds =  int(float(path[start_idx+len("duration="):end_idx]))
+        parsed = urlparse(path)
+        length_seconds = dict(parse_qsl(parsed.query))['duration']
+        length_seconds =  int(float(length_seconds))
         self.length = timedelta(seconds=length_seconds)
     
     def download(self):
