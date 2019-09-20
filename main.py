@@ -89,7 +89,7 @@ class Video():
         html = urlopen(url).read()
         soup = BeautifulSoup(html, 'html.parser')
 
-        self.title = soup.find("dt", id="title_name").text.strip()
+        self.title = soup.find(id="title_name").text.strip()
         
         file_name = str(self.title).strip().replace(' ', '_')
         self.file_name = re.sub(r'(?u)[^-\w.]', '', file_name) + ".mp4"
