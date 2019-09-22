@@ -369,10 +369,9 @@ def check_admin():
         is_admin = os.getuid() == 0
     except AttributeError:
         is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
-        print(is_admin)
-        exit()
-        sys.exit(-1)
+        
     if not is_admin:
+        print("[Error] 관리자 권한으로 프로그램을 실행시켜주십시요")
         exit()
     
 def main():
