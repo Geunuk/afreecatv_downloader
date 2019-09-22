@@ -196,7 +196,6 @@ class Video():
                 with open(path, 'r') as tmp:
                     for line in tmp:
                         part_file_name = line.strip()[len("file '"):-1]
-                        print(part_file_name)
                         os.remove(part_file_name)
                     
             finally:
