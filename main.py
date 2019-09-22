@@ -18,6 +18,7 @@ import platform
 FFMPEG_BIN = ""
 rejected_urls = []
 rejected_video_codes = []
+checking_now_url = ""
 video = None
 
 
@@ -36,6 +37,21 @@ class Video():
 
         self.start_download = False
         self.broadcast_date = None
+
+    def print_video_parts_description(self):
+        def strfdelta(tdelta):
+            h, rem = divmod(tdelta.seconds, 3600)
+            m, s = divmod(rem, 60)
+            return str(h).zfill(2) + ":" + str(m).zfill(2) + ":" + str(s).zfill(2)
+
+        space = 10
+        n  = len(self.video_parts)
+        print("-" * (space * n + 2*n))
+        print("|"+ "||".join([str("Part " + str(p.part_no)).center(space) for p in self.video_parts]) + "|")
+        print("|"+ "||".join([strfdelta(p.length).center(space) for p in self.video_parts]) + "|")
+        print("-" * (space * n + 2*n))
+        
+
 
     def is_collecting_done(self, packet):
         """
@@ -86,9 +102,11 @@ class Video():
                 http://###/mp4:save/afreeca/station/2019/0504/01/1556901150709495.mp4/media_w133379925_2.ts
                     => 1556901150709495
         """
-
+        
         if 'save' in url:
             return re.search("/[0-9]+\.", url).group(0).strip('/.')
+        elif 'HIDE.mp4' in url:
+            return "HIDE"
         else:
             return re.search("/[A-Z0-9]+_[0-9]+_", url).group(0).split('_')[-2]
 
@@ -143,7 +161,7 @@ class Video():
         #   ex) '### part1.mp4' -> '###.mp4'
         # If video consists of several files, concat using ffmpeg
         #   ex) '### part1.mp4' + ... + '### part4.mp4 -> '###.mp4'
-
+        
         if len(self.video_parts) == 1:
             only_part = self.video_parts[0]
             idx = only_part.file_name.rfind(" part")
@@ -151,10 +169,13 @@ class Video():
             os.rename(only_part.file_name, new_name)
 
         else:
-            fd, path = tempfile.mkstemp()
+            
+            path = "file list.txt"
+            #fd, path = tempfile.mkstemp()
             try:
                 # Make temp file for ffmpeg input
-                with os.fdopen(fd, 'w') as tmp:
+                with open(path, 'w') as tmp:  
+                #with os.fdopen(fd, 'w') as tmp:
                     for part in self.video_parts:
                         # If file name is "abc.mp4", 
                         # line in temp file is "file '/foo/bar/abc.mp4'"
@@ -170,17 +191,18 @@ class Video():
                             '-c', 'copy',
                             '-y', self.file_name]
                 subprocess.run(command)
-                
+                    
                 # Remove original file
                 with open(path, 'r') as tmp:
                     for line in tmp:
-                        part_file_name = line[len("file '"):-1]
+                        part_file_name = line.strip()[len("file '"):-1]
+                        print(part_file_name)
                         os.remove(part_file_name)
-                
+                    
             finally:
                 sys.stdout.flush()
                 os.remove(path)
-
+            
 class VideoPart():
     def __init__(self, url, concat_file_name, ffmpeg_bin):
         self.url = url
@@ -190,10 +212,11 @@ class VideoPart():
         # 하이라이트 -> smil:highlight(part does not exist)
         # 업로드 VOD, 유저 VOD ->  smil:save(part does not exist)
 
-        if "smil:vod" in self.url:
+        if "smil:vod" in self.url or "smil:mvod" in self.url:
             tmp_part_no = re.search("/[A-Z0-9]+_[0-9]+_[0-9]+", self.url)
             tmp_part_no = tmp_part_no.group(0)
-            self.part_no = tmp_part_no.rpartition("_")[2]
+            self.part_no = int(tmp_part_no.rpartition("_")[2])
+
         else:
             self.part_no = 1
 
@@ -238,7 +261,7 @@ class VideoPart():
                         length += float(line2.strip()[len("#EXTINF:"):-len(",")])
                         self.chunk_cnt += 1
                 self.length = timedelta(seconds=round(length))
-                print("\tpart_length:", self.length)
+                #print("\tpart_length:", self.length)
                 break
   
     def download(self):
@@ -250,7 +273,6 @@ class VideoPart():
                         '-c', 'copy',
                         '-bsf:a', 'aac_adtstoasc',
                         '-y', self.file_name]
-
             subprocess.run(command)
         finally:
             sys.stdout.flush()
@@ -272,7 +294,7 @@ def extract_host(packet):
     return host_name
 
 def collect_playlist(packet):
-    global rejected_urls, rejected_video_codes
+    global rejected_urls, rejected_video_codes, checking_now_url
     packet_str = str(packet)
 
     # Find path at HTTP GET packet
@@ -286,25 +308,25 @@ def collect_playlist(packet):
 
     if not video.video_selected and ".ts" in path:
         tmp_video_code =  Video.parse_video_code_from_url(path)
-        if tmp_video_code in rejected_video_codes:
+        if tmp_video_code in rejected_video_codes or url.rpartition('/')[0] == checking_now_url.rpartition('/')[0]:
             pass
         else:
-            print("[동영상 감지. 새로고침이 필요합니다]")
+            checking_now_url = url
+            print("### 동영상을 발견했습니다. 새로고침이 필요합니다. ###")
         return
 
     elif (not video.video_selected and not url in rejected_urls
             and url.startswith("http://vod.afreecatv.com/PLAYER/STATION/")):
         video.get_video_info(url)
-        print("[동영상 정보]")
-        print("\ttitle:", video.title)
-        print("\t방송일:", video.broadcast_date.strftime("%Y-%m-%d"))
-        print("\turl:", video.url)
-        print("\tvideo_code:", video.video_code)
-
+        print("\n방송 제목:", video.title)
+        print("방송일:", video.broadcast_date.strftime("%Y-%m-%d"))
+        #print("주소:", video.url)
+        
         while True:
-            answer = input("\tDownload? [y/n]: ")
+            answer = input("이 동영상을 다운로드 하시겠습니까? [Y/N]: ")
             if answer.lower() == 'y':
                 video.video_selected = True
+                print("\n### 이제 재생 바를 클릭하여 파트들을 찾아주십시요 ###\n")
                 break
 
             elif answer.lower() == 'n':
@@ -324,26 +346,45 @@ def collect_playlist(packet):
     elif video.video_selected and not video.first_search and ".ts" in packet_str:
         part_url = urljoin(url, "playlist.m3u8")
         tmp_video_code = Video.parse_video_code_from_url(part_url)
-
-        if (video.video_code == tmp_video_code and
+    
+        if (tmp_video_code == "HIDE" or video.video_code == tmp_video_code and
             part_url not in [part.url for part in video.video_parts]):
-            print("[새로운 part 발견]")
-            print("\turl:", part_url)
-            print("\ttotal_length:", video.length)
-            
-            part = VideoPart(part_url, video.file_name, video.ffmpeg_bin)
-            video.video_parts.append(part)
-            video.acc_length += part.length
+           
+            if tmp_video_code == "HIDE":
+                print("### 녹화 중단 파트 발견 ###")
+                print("### 몇 초간 중단 된 것을 고려하여 다른 파트를 찾아주세요 ###")
+                
+            else:
+                part = VideoPart(part_url, video.file_name, video.ffmpeg_bin)
+                video.video_parts.append(part)
+                video.video_parts.sort(key=lambda x: x.part_no)
+                video.acc_length += part.length
+                remain_length = video.length - video.acc_length
+                print("### 파트 {} 발견 ###".format(part.part_no))
 
-            print("\tremain_length:", video.length - video.acc_length)
+            #print("url:", part_url)
+            print("전체 길이:", video.length)
+            remain_length = video.length - video.acc_length
+            print("남은 길이:", remain_length  if remain_length.total_seconds() >= 0 else timedelta(0))
             
+            video.print_video_parts_description()
             while True:
-                answer = input("\tDownload? [y/n]: ")
-                if answer.lower() == 'y':
+                if abs((video.length-video.acc_length).total_seconds()) <= 0:
+                    answer = input("모든 파트를 찾았습니다. 다운로드를 시작할까요? [Enter]: ")
+                    print()
                     video.start_download = True
+                    break
+                    
+                if abs((video.length-video.acc_length).total_seconds()) < 10:
+                    print("### 남은 길이가 몇 초 남지 않았다면 모든 파트를 찾은 것입니다 ###")
+                answer = input("파트를 계속 검색하시려면 Y, 지금까지 모은 파트들을 다운로드하시려면 N을 입력해주세요? [Y/N]: ")
+                print()
+                if answer.lower() == 'y':
+                    print("### 다른 파트를 찾아주세요 ###\n")
                     break
 
                 elif answer.lower() == 'n':
+                    video.start_download = True
                     break
 
                 else:
@@ -373,25 +414,25 @@ def check_admin():
     if not is_admin:
         print("[Error] 관리자 권한으로 프로그램을 실행시켜주십시요")
         exit()
-    
+def print_manual():
+    print("[Afreecatv Downloader 사용 방법]\n"
+        + "1. 웹브라우저를 실행해서 동영상이 있는 웹 페이지로 이동한 뒤 새로고침 한다.\n"
+        + "   주소 예) http://vod.afreecatv.com/PLAYER/STATION/###\n"
+        + "2. 사용자가 선택한 동영상이 맞다면 'Y'를, 아니라면 'N'을 입력한다.\n"
+        + "3. 전체 동영상은 서로 길이가 다른 파트들로 나누어져있다. 따라서 재생 바의\n"
+        + "   여러 부분을 클릭하여 모든 파트를 찾아야 한다. 파트를 찾게 되면 메세지가\n"
+        + "   표시되며 모든 파트를 발견한 경우 'Y'를 입력하면 다운로드가 시작 된다.\n")
+   
 def main():
     global video
-    man = """
-[사용 방법]
-    1. 프로그램 실행 python main.py
-    2. 웹브라우저를 통해 동영상이 있는 웹 페이지로 이동한 뒤 새로고침 한다.
-        ex) http://vod.afreecatv.com/PLAYER/STATION/###
-    3. 전체 동영상은 보통 1시간 단위의 파트로 나누어져 있지만
-       그보다 작은 파트도 존재한다.
-       재생 바의 여러 부분을 클릭하여 모든 파트를 찾아야 한다.
-       파트를 찾게 되면 메세지가 표시되며 모든 파트를 발견한 경우 자동으로 다운로드가 시작된다."""
     
     check_os()
     check_admin()
+
     video = Video(FFMPEG_BIN)
     
-    print(man)
-
+    print_manual()
+    
     sniff(prn=collect_playlist, stop_filter=video.is_collecting_done, 
             lfilter=lambda p: 'GET /' in str(p), filter="tcp")
     
