@@ -2,12 +2,14 @@
 
 from urllib.request import urlopen
 from urllib.parse import urljoin, urlparse, parse_qsl
-from datetime import timedelta
+from datetime import timedelta, datetime
 import re
 import sys
 import subprocess
 import multiprocessing
 import tempfile
+import ctypes
+import os
 
 from scapy.all import *
 from bs4 import BeautifulSoup
@@ -32,18 +34,23 @@ class Video():
         self.video_selected = False
         self.first_search = True
 
+        self.start_download = False
+        self.broadcast_date = None
+
     def is_collecting_done(self, packet):
         """
             collecting is done if difference between correct length
             and collected length is less than double of number of video parts
         """
 
+        return self.start_download
+        """
         if self.length == None:
             return False
         else:
             diff_length = abs((self.length-self.acc_length).total_seconds()) 
             return diff_length < 2*len(self.video_parts)
-    
+        """
     @staticmethod
     def parse_video_code_from_html(soup):
         """
@@ -93,8 +100,22 @@ class Video():
 
         self.title = soup.find(id="title_name").text.strip()
         
+        ### 방송일
+        #<strong>방송시간</strong><span>2019-09-06 19:08:12 ~ 2019-09-07 02:46:42
+        #<strong>방송 시작일</strong><span>2019-01-03 19:29:13</span></li>
+        date_soup = soup.find(id="vodDetailView").select("li")[0]
+        item_name = date_soup.find("strong")
+        if (item_name
+            and ("방송시간" in item_name or "방송 시작일" in item_name)):
+            date = date_soup.find("span").text.split()[0]
+            self.broadcast_date = datetime.strptime(date, "%Y-%m-%d")
+        
         file_name = str(self.title).strip().replace(' ', '_')
-        self.file_name = re.sub(r'(?u)[^-\w.]', '', file_name) + ".mp4"
+        if self.broadcast_date:
+            self.file_name = (self.broadcast_date.strftime("%y%m%d") + " " +
+                             re.sub(r'(?u)[^-\w.]', '', file_name) + ".mp4")
+        else:
+            self.file_name = re.sub(r'(?u)[^-\w.]', '', file_name) + ".mp4"
 
         self.video_code = Video.parse_video_code_from_html(soup)
 
@@ -276,6 +297,7 @@ def collect_playlist(packet):
         video.get_video_info(url)
         print("[동영상 정보]")
         print("\ttitle:", video.title)
+        print("\t방송일:", video.broadcast_date.strftime("%Y-%m-%d"))
         print("\turl:", video.url)
         print("\tvideo_code:", video.video_code)
 
@@ -314,6 +336,19 @@ def collect_playlist(packet):
             video.acc_length += part.length
 
             print("\tremain_length:", video.length - video.acc_length)
+            
+            while True:
+                answer = input("\tDownload? [y/n]: ")
+                if answer.lower() == 'y':
+                    video.start_download = True
+                    break
+
+                elif answer.lower() == 'n':
+                    break
+
+                else:
+                    continue
+        
         
         return
 
@@ -329,6 +364,17 @@ def check_os():
         print(platform.system() + "is not supported")
         sys.exit(-1)
 
+def check_admin():
+    try:
+        is_admin = os.getuid() == 0
+    except AttributeError:
+        is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+        print(is_admin)
+        exit()
+        sys.exit(-1)
+    if not is_admin:
+        exit()
+    
 def main():
     global video
     man = """
@@ -342,6 +388,7 @@ def main():
        파트를 찾게 되면 메세지가 표시되며 모든 파트를 발견한 경우 자동으로 다운로드가 시작된다."""
     
     check_os()
+    check_admin()
     video = Video(FFMPEG_BIN)
     
     print(man)
